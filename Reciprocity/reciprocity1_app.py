@@ -1,7 +1,8 @@
 import streamlit as st
 from openai import OpenAI
+import google.generativeai as genai
 
-# --- Configuration ---
+# Set page config
 st.set_page_config(page_title="Reciprocity Onboarding", page_icon="🤝")
 st.title("🤖 Reciprocity Persona Onboarding")
 
@@ -11,15 +12,28 @@ Welcome! This AI assistant will help you build a **personalized professional per
 **Let’s get started!** 👇
 """)
 
-# --- API Key ---
-openai_api_key = st.text_input("🔑 Enter your OpenAI API Key", type="password")
-if not openai_api_key:
-    st.warning("Please enter your OpenAI API key to begin.", icon="⚠️")
-    st.stop()
+# --- Choose Model Provider ---
+provider = st.selectbox("🧠 Choose your AI model:", ["OpenAI", "Gemini"])
 
-client = OpenAI(api_key=openai_api_key)
+# --- Load API Keys from Streamlit Secrets ---
+openai_api_key = st.secrets.get("openai_api_key")
+gemini_api_key = st.secrets.get("gemini_api")
 
-# --- Session Setup ---
+# --- Initialize Clients Based on Choice ---
+client = None
+if provider == "OpenAI":
+    if not openai_api_key:
+        st.error("Missing OpenAI API key in secrets.")
+        st.stop()
+    client = OpenAI(api_key=openai_api_key)
+elif provider == "Gemini":
+    if not gemini_api_key:
+        st.error("Missing Gemini API key in secrets.")
+        st.stop()
+    genai.configure(api_key=gemini_api_key)
+    client = genai.GenerativeModel("gemini-pro")
+
+# --- Session State Initialization ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -31,7 +45,7 @@ if "persona_state" not in st.session_state:
 
 persona = st.session_state.persona_state
 
-# --- Onboarding Questions ---
+# --- Onboarding Steps ---
 onboarding_steps = [
     {"key": "profile", "question": "📎 Can you share a link to your LinkedIn profile or a short summary of your background?"},
     {"key": "elevator", "question": "🚀 What are you currently working on, and what are you most passionate about?"},
@@ -46,15 +60,14 @@ onboarding_steps = [
     {"key": "channel", "question": "🔗 How should introductions happen? (In-app chat, email, scheduled call?)"},
 ]
 
-# --- Dialogue Display ---
+# --- Show Chat History ---
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# --- Chat Flow ---
+# --- Handle Input ---
 if prompt := st.chat_input("Type your response here..."):
 
-    # Store user message
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
@@ -71,18 +84,13 @@ if prompt := st.chat_input("Type your response here..."):
                 st.markdown(next_q)
             st.session_state.messages.append({"role": "assistant", "content": next_q})
         else:
-            # Onboarding complete
+            summary_text = f"🎉 You're all set! Your personalized AI agent has been trained.\n\n**Persona Summary:**\n{persona['data']}"
+
             with st.chat_message("assistant"):
                 st.success("🎉 You're all set! Your personalized AI agent has been trained.")
-                st.markdown("Here’s a preview of your **persona profile**:")
                 st.json(persona["data"])
 
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": "🎉 You're all set! Your personalized AI agent has been trained.\n\n" +
-                           "Here’s a preview of your **persona profile**:\n" +
-                           str(persona["data"])
-            })
+            st.session_state.messages.append({"role": "assistant", "content": summary_text})
     else:
         with st.chat_message("assistant"):
-            st.info("You’ve already completed onboarding. Refresh the page to start over.")
+            st.info("✅ Onboarding complete. Refresh to start over or export your persona.")
