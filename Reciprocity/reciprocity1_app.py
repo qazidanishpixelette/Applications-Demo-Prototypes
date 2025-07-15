@@ -164,7 +164,7 @@ else:
         "Using the data below, write a structured professional persona including:\n"
         "- Background summary\n"
         "- Core strengths\n"
-        - "Primary networking goal\n"
+        "- Primary networking goal\n"
         "- Ideal people or organizations to connect with\n"
         "- Deal breakers or filtering criteria\n"
         "- Communication and introduction preferences\n\n"
