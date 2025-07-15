@@ -209,5 +209,24 @@ else:
     with st.chat_message("assistant"):
         st.markdown("🧠 Here's your AI-generated persona summary:")
         st.markdown(summary)
+    # --- Action Buttons: Save & Reset ---
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("🔄 Start Over (Reset)"):
+            st.session_state.clear()
+            st.rerun()
+    
+    with col2:
+        if st.button("💾 Save Persona Summary"):
+            filename = f"persona_{persona['data'].get('profile', 'user').split()[0].lower()}.txt"
+            st.download_button(
+                label="Download Persona",
+                data=summary,
+                file_name=filename,
+                mime="text/plain"
+            )
+
 
     st.session_state.messages.append({"role": "assistant", "content": summary})
+
