@@ -155,22 +155,43 @@ if step < len(questions):
 else:
     # Show raw JSON
     with st.chat_message("assistant"):
-        st.success("🎉 Onboarding complete! Here's your collected profile:")
-        st.json(persona["data"])
+        st.success("🎉 Onboarding complete!")
+        # st.json(persona["data"])
         st.markdown("Now generating your **structured persona summary**…")
 
     # Create prompt
-    prompt_text = (
-        "Using the data below, write a structured professional persona including:\n"
-        "- Background summary\n"
-        "- Core strengths\n"
-        "- Primary networking goal\n"
-        "- Ideal people or organizations to connect with\n"
-        "- Deal breakers or filtering criteria\n"
-        "- Communication and introduction preferences\n\n"
-        "Persona data:\n"
-        + str(persona["data"])
-    )
+    prompt_text = f"""
+    You are a professional onboarding and matchmaking AI.
+    
+    Using the following raw user inputs, generate a structured professional persona. Your output should be concise, human-readable, and organized under the following headers.
+    
+    Respond in markdown format with clear labels.
+    
+    ---
+    
+    **👤 Background Summary:**  
+    Summarize their personal and professional background, including company, years of experience, and personality cues.
+    
+    **💼 Core Strengths:**  
+    List their top 3 strengths, skills, or traits that define them professionally.
+    
+    **🎯 Primary Networking Goal:**  
+    Summarize the user’s core goal for using this AI assistant, in one or two clear sentences.
+    
+    **🔍 Ideal Connections:**  
+    List the kinds of people, companies, or industries this user is looking to meet. Include titles, domains, or “between the lines” traits.
+    
+    **🚫 Deal Breakers / Filters:**  
+    What types of connections would be irrelevant, mismatched, or unhelpful for this user?
+    
+    **💬 Communication Style:**  
+    How do they prefer to communicate and get introduced? Include tone, pacing, and intro methods.
+    
+    ---
+    
+    Raw User Input:
+    {persona_data}
+    """
 
     # --- AI Summary Generation ---
     if provider == "OpenAI":
