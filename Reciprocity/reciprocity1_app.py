@@ -7,7 +7,7 @@ st.set_page_config(page_title="Reciprocity Persona Builder", page_icon="🤝")
 st.title("🤖 Build Your AI Persona")
 
 # --- Provider Selection ---
-provider = st.selectbox("🧠 Choose your AI model:", ["OpenAI", "Google Gemini"])
+provider = st.selectbox("🧠 Choose your AI model:", ["OpenAI"]) #, "Google Gemini"
 
 # --- API Keys ---
 openai_api_key = st.secrets.get("openai_api_key")
