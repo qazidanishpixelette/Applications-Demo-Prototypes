@@ -158,7 +158,7 @@ else:
         st.success("🎉 Onboarding complete!")
         # st.json(persona["data"])
         st.markdown("Now generating your **structured persona summary**…")
-
+    persona_data = persona["data"]
     # Create prompt
     prompt_text = f"""
     You are a professional onboarding and matchmaking AI.
