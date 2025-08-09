@@ -4,7 +4,7 @@ import streamlit as st
 from streamlit_chat import message
 from agent import Agent
 
-st.set_page_config(page_title="ChatPDF")
+st.set_page_config(page_title="AI Financial Data Assistant")
 
 
 def display_messages():
@@ -57,7 +57,7 @@ def main():
 
     # No need to show the input field for API key anymore
     if not is_openai_api_key_set():
-        st.error("OpenAI API Key is missing. Please add it to your Streamlit secrets.")
+        st.error("OpenAI API Key is missing")
         return
 
     st.subheader("Upload a document")
@@ -77,8 +77,9 @@ def main():
     st.text_input("Message", key="user_input", disabled=not is_openai_api_key_set(), on_change=process_input)
 
     st.divider()
-    st.markdown("Source code: [Github](https://github.com/viniciusarruda/chatpdf)")
+    st.markdown("Source code: Demo Prepared By [Pixelette Technologies](https://pixelettetech.com)")
 
 
 if __name__ == "__main__":
     main()
+
