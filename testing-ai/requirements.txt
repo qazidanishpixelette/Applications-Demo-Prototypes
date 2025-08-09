@@ -1,6 +1,7 @@
 streamlit
 streamlit_chat
 langchain
+langchain-community
 openai
 faiss-cpu
 pypdf
