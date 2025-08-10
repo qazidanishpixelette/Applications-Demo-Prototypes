@@ -1,7 +1,7 @@
 # ChatPDF
 
 Ask anything to PDFs.
-[Demo](https://chatpdfs.streamlit.app/)
+[Demo](https://chatpdfsample.streamlit.app/)
 
 ## Installation
 
@@ -16,3 +16,4 @@ pip install -r requirements.txt
 ```bash
 streamlit run app.py
 ```
+
