@@ -60,7 +60,7 @@ def main():
         st.error("OpenAI API Key is missing")
         return
 
-    st.subheader("Upload a document")
+    st.subheader("Upload a sample invoice or bank statement or Anything")
     st.file_uploader(
         "Upload document",
         type=["pdf"],
@@ -82,5 +82,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
