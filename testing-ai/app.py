@@ -8,7 +8,7 @@ st.set_page_config(page_title="AI Financial Data Assistant")
 
 
 def display_messages():
-    st.subheader("Chat")
+    st.subheader("Chat System")
     for i, (msg, is_user) in enumerate(st.session_state["messages"]):
         message(msg, is_user=is_user, key=str(i))
     st.session_state["thinking_spinner"] = st.empty()
@@ -82,6 +82,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
