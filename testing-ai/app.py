@@ -53,7 +53,7 @@ def main():
         else:
             st.session_state["agent"] = None
 
-    st.header("ChatPDF")
+    st.header("AI Financial Data Assistant")
 
     # No need to show the input field for API key anymore
     if not is_openai_api_key_set():
@@ -82,4 +82,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
