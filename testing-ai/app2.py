@@ -1,14 +1,13 @@
 import os
 import tempfile
 import streamlit as st
-from openai import OpenAI
-import google.generativeai as genai
+import openai
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.vectorstores import FAISS
 from langchain.chains import ConversationalRetrievalChain
-from langchain.llms import OpenAI
+from langchain.llms import OpenAI as LangchainOpenAI
 
 # --- Page Setup ---
 st.set_page_config(page_title="AI Financial Document Assistant", page_icon="📊")
@@ -18,7 +17,7 @@ openai_api_key = st.secrets.get("OPENAI_API_KEY", "")
 
 # --- Client Init ---
 if openai_api_key:
-    client = OpenAI(api_key=openai_api_key)
+    openai.api_key = openai_api_key  # Set OpenAI API key directly
 else:
     st.error("OpenAI API Key is missing. Please add it to your Streamlit secrets.")
     st.stop()
@@ -64,19 +63,22 @@ if uploaded_file:
     - Reference
     """
 
-    # Send the prompt to the model for processing
-    response = client.chat.completions.create(
-        model="gpt-4",
-        messages=[
-            {"role": "system", "content": "You are an AI financial assistant."},
-            {"role": "user", "content": prompt_text}
-        ]
-    )
+    # Send the prompt to OpenAI for processing using the correct API method
+    try:
+        response = openai.Completion.create(
+            model="text-davinci-003",  # Use GPT-3 or any available model
+            prompt=prompt_text,
+            max_tokens=500,  # Limit the response length
+            temperature=0.0  # Set temperature to 0 for deterministic responses
+        )
 
-    # Parse and display the extracted bookkeeping fields
-    extracted_fields = response.choices[0].message.content.strip()
-    st.write("AI Response:")
-    st.write(extracted_fields)
+        # Parse and display the extracted bookkeeping fields
+        extracted_fields = response.choices[0].text.strip()
+        st.write("AI Response:")
+        st.write(extracted_fields)
+
+    except Exception as e:
+        st.error(f"Error during AI processing: {e}")
 
     # --- AI-Powered User Query Assistance ---
     st.subheader("Ask the AI about your document")
@@ -87,7 +89,7 @@ if uploaded_file:
         # Initialize Langchain components for querying the document
         embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-        llm = OpenAI(temperature=0, openai_api_key=openai_api_key)
+        llm = LangchainOpenAI(temperature=0, openai_api_key=openai_api_key)
 
         # Split the document into chunks
         splitted_documents = text_splitter.split_documents(documents)
