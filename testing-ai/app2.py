@@ -10,7 +10,6 @@ from langchain.vectorstores import FAISS
 from langchain.chains import ConversationalRetrievalChain
 from langchain.llms import OpenAI
 
-
 # --- Page Setup ---
 st.set_page_config(page_title="AI Financial Document Assistant", page_icon="📊")
 
@@ -40,16 +39,44 @@ if uploaded_file:
     loader = PyPDFLoader(file_path)
     documents = loader.load()
 
-    # --- Bookkeeping Field Extraction ---
+    # --- Bookkeeping Field Extraction Using AI ---
     st.subheader("Extracted Bookkeeping Fields")
-    # Placeholder: This will display the extracted bookkeeping fields (in practice, this will need AI-based field extraction logic)
-    # For now, let's assume we extract fields like "Transaction Amounts", "Date", "Description", and "References"
-    bookkeeping_fields = [
-        {"Transaction": 5000, "Date": "2025-01-15", "Description": "Payment from Client", "Reference": "INV12345"},
-        {"Transaction": 2000, "Date": "2025-01-16", "Description": "Service Fee", "Reference": "SVC56789"},
-        {"Transaction": 7500, "Date": "2025-01-17", "Description": "Refund from Vendor", "Reference": "REF98765"}
-    ]
-    st.table(bookkeeping_fields)
+
+    # Prepare the document content for the prompt
+    document_text = " ".join([doc.page_content for doc in documents])
+
+    # Create the LLM prompt for bookkeeping field extraction
+    prompt_text = f"""
+    You are an AI financial assistant. Please analyze the following document and extract the relevant bookkeeping fields. Look for the following types of information:
+    - **Transaction Amounts**: Identifiable monetary values.
+    - **Dates**: Transaction dates in standard formats.
+    - **Descriptions**: Descriptive text explaining each transaction.
+    - **References**: Any alphanumeric codes that could identify or reference transactions (e.g., invoice numbers, transaction IDs).
+
+    Only extract relevant fields that fit these categories and ignore non-relevant data. Here is the document content:
+
+    {document_text}
+
+    Please return a structured list of the following fields: 
+    - Date
+    - Transaction Amount
+    - Description
+    - Reference
+    """
+
+    # Send the prompt to the model for processing
+    response = client.chat.completions.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": "You are an AI financial assistant."},
+            {"role": "user", "content": prompt_text}
+        ]
+    )
+
+    # Parse and display the extracted bookkeeping fields
+    extracted_fields = response.choices[0].message.content.strip()
+    st.write("AI Response:")
+    st.write(extracted_fields)
 
     # --- AI-Powered User Query Assistance ---
     st.subheader("Ask the AI about your document")
@@ -75,20 +102,9 @@ if uploaded_file:
 
         st.write(f"AI Response: {answer}")
 
-    # --- AI-Generated Insights ---
-    st.subheader("AI-Generated Insights")
-
-    # Placeholder for AI insights: This can be enhanced to include real financial analysis
-    ai_insights = """
-    - **Total Transactions Processed**: 3 transactions identified.
-    - **Anomalies Detected**: No anomalies detected based on the provided threshold.
-    - **Key Insights**: The document contains a variety of transactions, including service fees and refunds. The total amounts appear consistent with expected financial activity.
-    """
-    st.write(ai_insights)
-
     # Clean up temporary file
     os.remove(file_path)
 
 # --- Footer ---
 st.divider()
-st.markdown("Demo Prepared By: [Pixelette Technologies](https://pixelettetech.com/)")
+st.markdown("Source code: [Github](https://github.com/your-repository-link)")
