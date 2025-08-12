@@ -123,28 +123,35 @@ if uploaded_file:
     st.table(extracted_data)
 
     # --- AI-Powered User Query Assistance ---
+   from langchain.schema import Document
+
+    # --- AI-Powered User Query Assistance ---
     st.subheader("Ask the AI about your document")
-
+    
     user_query = st.text_input("What would you like to ask about this document?")
-
+    
     if user_query:
         # Initialize Langchain components for querying the document
         embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
         llm = OpenAI(temperature=0, openai_api_key=openai_api_key)
-
+    
+        # Wrap the extracted PDF text in a Document object
+        document = Document(page_content=pdf_text)
+        
         # Split the document into chunks
-        splitted_documents = text_splitter.split_documents([pdf_text])
-
+        splitted_documents = text_splitter.split_documents([document])
+    
         # Create the FAISS vector store
         db = FAISS.from_documents(splitted_documents, embeddings)
         chain = ConversationalRetrievalChain.from_llm(llm, db.as_retriever())
-
+    
         # Query the document using the AI
         response = chain({"question": user_query, "chat_history": []})
         answer = response["answer"].strip()
-
+    
         st.write(f"AI Response: {answer}")
+    
 
     # --- AI-Generated Insights ---
     st.subheader("AI-Generated Insights")
