@@ -1,8 +1,9 @@
 import os
 import tempfile
 import streamlit as st
+import PyPDF2
+import datetime
 from openai import OpenAI
-import google.generativeai as genai
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -24,6 +25,80 @@ else:
     st.error("OpenAI API Key is missing. Please add it to your Streamlit secrets.")
     st.stop()
 
+
+def extract_pdf_data(file):
+    """Extract text from the uploaded PDF document."""
+    pdf_reader = PyPDF2.PdfReader(file)
+    text = ""
+    for page in pdf_reader.pages:
+        text += page.extract_text()
+    return text
+
+
+def extract_values(text, form_title):
+    """Extract specific values from the document text based on the form title."""
+    data = {}
+
+    # Split the text by sections to process the relevant form
+    sections = text.split("Form ")
+
+    # Determine the last part of the title to identify the form
+    form_identifier = form_title.split(" ")[2]  # Extract "C-Corp" from "Form 1120 C-Corp"
+
+    # Find the section that corresponds to the form identifier
+    form_section = ""
+    for section in sections:
+        if form_identifier in section:
+            form_section = section
+            break
+
+    if not form_section:
+        raise ValueError(f"Form {form_title} not found in the provided PDF text.")
+
+    # Split the form section into lines to process line by line
+    lines = form_section.splitlines()
+
+    # Define keywords to search for in the text
+    keywords = {
+        "name": "Name:",
+        "address": "Business Address:",
+        "ein": "Employer Identification Number (EIN):",
+        "date_incorporated": "Incorporation Date:",
+        "gross_receipts": "Gross Receipts or Sales:",
+        "returns_allowances": "Returns and Allowances:",
+        "cost_of_goods_sold": "Cost of Goods Sold:",
+        "dividends": "Dividends:",
+        "interest": "Interest:",
+        "rents": "Gross Rents:",
+        "royalties": "Gross Royalties:",
+        "capital_gain": "Net Capital Gain:",
+        "net_gain": "Net Gain or (Loss):",
+        "salaries_wages": "Salaries and wages:",
+        "repairs_maintenance": "Repairs and maintenance:",
+        "bad_debts": "Bad debts:",
+        "rents_deductions": "Rents:",
+        "taxes_licenses": "Taxes and licenses:",
+        "interest_deductions": "Interest:",
+        "depreciation": "Depreciation:",
+        "advertising": "Advertising:",
+        "other_deductions": "Other Deductions:"
+    }
+
+    # Iterate over each line and check if it contains any of the keywords
+    for line in lines:
+        for key, keyword in keywords.items():
+            if keyword in line:
+                # Extract the value after the keyword
+                value = line.split(":")[1].strip().replace(",", "").replace("$", "")
+                if key in ["gross_receipts", "returns_allowances", "cost_of_goods_sold", "dividends", "interest", "rents", "royalties", "capital_gain", "net_gain", "salaries_wages", "repairs_maintenance", "bad_debts", "rents_deductions", "taxes_licenses", "interest_deductions", "depreciation", "advertising", "other_deductions"]:
+                    # Convert numeric values to float
+                    value = float(value)
+                data[key] = value
+
+    # Return the extracted data
+    return data
+
+
 # --- Document Upload Section ---
 st.header("Upload Your Financial Document")
 
@@ -36,20 +111,16 @@ if uploaded_file:
         tf.write(uploaded_file.getbuffer())
         file_path = tf.name
 
-    # Load the document using Langchain's PyPDFLoader
-    loader = PyPDFLoader(file_path)
-    documents = loader.load()
+    # Extract the text from the PDF document
+    pdf_text = extract_pdf_data(uploaded_file)
+
+    # Extract relevant data from the document using the extracted text
+    form_title = "Form 1120 C-Corp"  # Example form title
+    extracted_data = extract_values(pdf_text, form_title)
 
     # --- Bookkeeping Field Extraction ---
     st.subheader("Extracted Bookkeeping Fields")
-    # Placeholder: This will display the extracted bookkeeping fields (in practice, this will need AI-based field extraction logic)
-    # For now, let's assume we extract fields like "Transaction Amounts", "Date", "Description", and "References"
-    bookkeeping_fields = [
-        {"Transaction": 5000, "Date": "2025-01-15", "Description": "Payment from Client", "Reference": "INV12345"},
-        {"Transaction": 2000, "Date": "2025-01-16", "Description": "Service Fee", "Reference": "SVC56789"},
-        {"Transaction": 7500, "Date": "2025-01-17", "Description": "Refund from Vendor", "Reference": "REF98765"}
-    ]
-    st.table(bookkeeping_fields)
+    st.table(extracted_data)
 
     # --- AI-Powered User Query Assistance ---
     st.subheader("Ask the AI about your document")
@@ -63,7 +134,7 @@ if uploaded_file:
         llm = OpenAI(temperature=0, openai_api_key=openai_api_key)
 
         # Split the document into chunks
-        splitted_documents = text_splitter.split_documents(documents)
+        splitted_documents = text_splitter.split_documents([pdf_text])
 
         # Create the FAISS vector store
         db = FAISS.from_documents(splitted_documents, embeddings)
