@@ -91,4 +91,4 @@ if uploaded_file:
 
 # --- Footer ---
 st.divider()
-st.markdown("Source code: [Github](https://github.com/your-repository-link)")
+st.markdown("Source code: Demo Prepared By [Pixelette Technologies](https://pixelettetech.com)")
