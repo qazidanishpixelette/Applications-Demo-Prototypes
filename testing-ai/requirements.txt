@@ -10,3 +10,6 @@ google.generativeai
 PyPDF2
 pytesseract
 docx
+python-docx
+document
+
