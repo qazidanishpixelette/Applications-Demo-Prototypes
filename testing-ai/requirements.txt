@@ -8,4 +8,4 @@ pypdf
 tiktoken
 google.generativeai
 PyPDF2
-
+pytesseract
