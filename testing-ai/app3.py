@@ -67,12 +67,8 @@ if document_type == "Tax Return Document":
 else:
     st.info("🏦 **Bank Statement Mode**: Upload a bank statement (PDF, DOCX, or image) to extract transaction data and analyze spending patterns.")
 
-# Privacy Disclaimer
-st.markdown("""
-<div style="background-color: #f0f9ff; padding: 10px; border-radius: 5px; border-left: 4px solid #0ea5e9;">
-<strong>🔒 Privacy Notice:</strong> This is a demo prototype. All data is processed temporarily and securely within your session. No data is stored or used for training.
-</div>
-""", unsafe_allow_html=True)
+st.title("🤖 AI-Powered PDF Tax Form Assistant")
+st.markdown("Upload a PDF tax return document to extract fields, ask questions, and get AI-powered insights.")
 
 def extract_pdf_text(pdf_file) -> str:
     """Extract all text from the uploaded PDF document."""
