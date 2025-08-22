@@ -1,3 +1,4 @@
+pytesseract
 google-generativeai
 streamlit
 openai
