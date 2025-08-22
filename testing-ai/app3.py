@@ -13,9 +13,13 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.vectorstores import FAISS
 from langchain.chains import ConversationalRetrievalChain
 from langchain.llms import OpenAI as LangChainOpenAI
+from PIL import Image
+import pytesseract
+from docx import Document
+import fitz  # PyMuPDF
 
 # --- Page Setup ---
-st.set_page_config(page_title="AI-Powered Financial Document Assistant", page_icon="🤖", layout="wide")
+st.set_page_config(page_title="AI-Powered Document Assistant", page_icon="🤖", layout="wide")
 
 # --- API Keys ---
 openai_api_key = st.secrets.get("OPENAI_API_KEY", "")
@@ -43,28 +47,32 @@ if "insights" not in st.session_state:
 if "document_type" not in st.session_state:
     st.session_state.document_type = "Tax Return Document"
 if "bank_transactions" not in st.session_state:
-    st.session_state.bank_transactions = []
+    st.session_state.bank_transactions = pd.DataFrame()
 
-st.title("🤖 AI-Powered Financial Document Assistant")
-st.markdown("Upload a PDF financial document to extract fields, ask questions, and get AI-powered insights.")
-
-# Demo Mode Warning
-st.warning("⚠️ **Demo Mode**: This is a prototype for demonstration purposes. All processing is session-limited and ephemeral. Future versions will include secure persistence, audit-compliant logic, and enhanced AI models.")
+st.title("🤖 AI-Powered Document Assistant")
+st.markdown("Upload tax returns or bank statements to extract data, ask questions, and get AI insights.")
 
 # Document Type Selection
-st.subheader("📄 Document Type Selection")
+st.header("📄 Document Type")
 document_type = st.selectbox(
-    "Choose the type of document you want to analyze:",
+    "Select the type of document you want to upload:",
     ["Tax Return Document", "Company Bank Statement"],
     index=0 if st.session_state.document_type == "Tax Return Document" else 1
 )
 st.session_state.document_type = document_type
 
-# Display different descriptions based on document type
+# Display appropriate instructions based on document type
 if document_type == "Tax Return Document":
-    st.info("📊 **Tax Return Analysis**: Extract form fields, analyze tax data, and get AI-powered insights on your tax return documents.")
+    st.info("📋 **Tax Return Mode**: Upload a PDF tax return to extract form fields, get AI insights, and ask questions about your tax data.")
 else:
-    st.info("🏦 **Bank Statement Analysis**: Parse transactions, identify patterns, flag large amounts, and get financial commentary on your bank statements.")
+    st.info("🏦 **Bank Statement Mode**: Upload a bank statement (PDF, DOCX, or image) to extract transaction data and analyze spending patterns.")
+
+# Privacy Disclaimer
+st.markdown("""
+<div style="background-color: #f0f9ff; padding: 10px; border-radius: 5px; border-left: 4px solid #0ea5e9;">
+<strong>🔒 Privacy Notice:</strong> This is a demo prototype. All data is processed temporarily and securely within your session. No data is stored or used for training.
+</div>
+""", unsafe_allow_html=True)
 
 def extract_pdf_text(pdf_file) -> str:
     """Extract all text from the uploaded PDF document."""
@@ -76,6 +84,50 @@ def extract_pdf_text(pdf_file) -> str:
         return text
     except Exception as e:
         st.error(f"Error reading PDF: {str(e)}")
+        return ""
+
+def extract_text_from_file(uploaded_file) -> str:
+    """Extract text from various file formats (PDF, DOCX, images)."""
+    try:
+        file_extension = uploaded_file.name.split('.')[-1].lower()
+        
+        if file_extension == 'pdf':
+            # Try PyMuPDF first for better text extraction
+            try:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+                    tmp_file.write(uploaded_file.getvalue())
+                    tmp_path = tmp_file.name
+                
+                doc = fitz.open(tmp_path)
+                text = ""
+                for page in doc:
+                    text += page.get_text() + "\n"
+                doc.close()
+                os.unlink(tmp_path)
+                return text
+            except:
+                # Fallback to PyPDF2
+                return extract_pdf_text(uploaded_file)
+        
+        elif file_extension == 'docx':
+            doc = Document(uploaded_file)
+            text = ""
+            for paragraph in doc.paragraphs:
+                text += paragraph.text + "\n"
+            return text
+        
+        elif file_extension in ['png', 'jpg', 'jpeg', 'tiff', 'bmp']:
+            # OCR for images
+            image = Image.open(uploaded_file)
+            text = pytesseract.image_to_string(image)
+            return text
+        
+        else:
+            st.error(f"Unsupported file format: {file_extension}")
+            return ""
+    
+    except Exception as e:
+        st.error(f"Error extracting text from file: {str(e)}")
         return ""
 
 def create_vector_store(pdf_file):
@@ -113,6 +165,172 @@ def create_vector_store(pdf_file):
     except Exception as e:
         st.error(f"Error creating vector store: {str(e)}")
         return None, None
+
+def extract_bank_transactions(text: str) -> pd.DataFrame:
+    """Extract transaction data from bank statement text."""
+    transactions = []
+    
+    # Common bank statement patterns
+    patterns = [
+        # Pattern 1: Date, Description, Amount, Balance
+        r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\s+([^$\d\n]+?)\s+[\$]?([\d,]+\.?\d*)\s+[\$]?([\d,]+\.?\d*)',
+        # Pattern 2: Date, Description, Debit, Credit, Balance
+        r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\s+([^$\d\n]+?)\s+[\$]?([\d,]*\.?\d*)\s+[\$]?([\d,]*\.?\d*)\s+[\$]?([\d,]+\.?\d*)',
+        # Pattern 3: MM/DD Description Amount
+        r'(\d{1,2}[/-]\d{1,2})\s+([^$\d\n]+?)\s+[\$]?([\d,]+\.?\d*)',
+    ]
+    
+    for pattern in patterns:
+        matches = re.findall(pattern, text, re.MULTILINE)
+        for match in matches:
+            try:
+                if len(match) == 4:  # Date, Description, Amount, Balance
+                    date_str, description, amount_str, balance_str = match
+                    amount = float(amount_str.replace(',', '').replace('$', ''))
+                    balance = float(balance_str.replace(',', '').replace('$', ''))
+                    
+                    # Determine if it's debit or credit based on context
+                    is_debit = any(keyword in description.lower() for keyword in 
+                                 ['withdrawal', 'debit', 'fee', 'charge', 'payment', 'transfer out'])
+                    
+                    transactions.append({
+                        'Date': date_str,
+                        'Description': description.strip(),
+                        'Debit': amount if is_debit else 0,
+                        'Credit': 0 if is_debit else amount,
+                        'Balance': balance,
+                        'Category': categorize_transaction(description),
+                        'Reference': f"TXN-{len(transactions)+1:04d}"
+                    })
+                
+                elif len(match) == 5:  # Date, Description, Debit, Credit, Balance
+                    date_str, description, debit_str, credit_str, balance_str = match
+                    debit = float(debit_str.replace(',', '').replace('$', '')) if debit_str else 0
+                    credit = float(credit_str.replace(',', '').replace('$', '')) if credit_str else 0
+                    balance = float(balance_str.replace(',', '').replace('$', ''))
+                    
+                    transactions.append({
+                        'Date': date_str,
+                        'Description': description.strip(),
+                        'Debit': debit,
+                        'Credit': credit,
+                        'Balance': balance,
+                        'Category': categorize_transaction(description),
+                        'Reference': f"TXN-{len(transactions)+1:04d}"
+                    })
+                
+                elif len(match) == 3:  # Date, Description, Amount
+                    date_str, description, amount_str = match
+                    amount = float(amount_str.replace(',', '').replace('$', ''))
+                    
+                    is_debit = any(keyword in description.lower() for keyword in 
+                                 ['withdrawal', 'debit', 'fee', 'charge', 'payment'])
+                    
+                    transactions.append({
+                        'Date': date_str,
+                        'Description': description.strip(),
+                        'Debit': amount if is_debit else 0,
+                        'Credit': 0 if is_debit else amount,
+                        'Balance': None,
+                        'Category': categorize_transaction(description),
+                        'Reference': f"TXN-{len(transactions)+1:04d}"
+                    })
+                    
+            except (ValueError, IndexError):
+                continue
+    
+    # Remove duplicates based on date and description
+    if transactions:
+        df = pd.DataFrame(transactions)
+        df = df.drop_duplicates(subset=['Date', 'Description'], keep='first')
+        
+        # Try to parse dates properly
+        try:
+            df['Date'] = pd.to_datetime(df['Date'], infer_datetime_format=True)
+            df = df.sort_values('Date', ascending=False)
+        except:
+            pass
+        
+        return df
+    
+    return pd.DataFrame()
+
+def categorize_transaction(description: str) -> str:
+    """Categorize transactions based on description keywords."""
+    description_lower = description.lower()
+    
+    categories = {
+        'Office Supplies': ['office', 'supplies', 'staples', 'depot', 'amazon'],
+        'Utilities': ['electric', 'gas', 'water', 'utility', 'energy', 'power'],
+        'Professional Services': ['legal', 'attorney', 'consultant', 'advisor', 'accountant'],
+        'Travel': ['airline', 'hotel', 'uber', 'lyft', 'taxi', 'rental', 'gas station'],
+        'Marketing': ['advertising', 'marketing', 'facebook', 'google ads', 'promotion'],
+        'Banking': ['fee', 'service charge', 'interest', 'transfer', 'deposit'],
+        'Insurance': ['insurance', 'premium', 'coverage'],
+        'Rent/Lease': ['rent', 'lease', 'property'],
+        'Equipment': ['equipment', 'computer', 'software', 'hardware'],
+        'Income': ['deposit', 'payment received', 'revenue', 'sales']
+    }
+    
+    for category, keywords in categories.items():
+        if any(keyword in description_lower for keyword in keywords):
+            return category
+    
+    return 'Other'
+
+def generate_bank_insights(transactions_df: pd.DataFrame) -> str:
+    """Generate insights for bank statement data."""
+    if transactions_df.empty:
+        return "No transaction data available for analysis."
+    
+    try:
+        total_debits = transactions_df['Debit'].sum()
+        total_credits = transactions_df['Credit'].sum()
+        net_flow = total_credits - total_debits
+        
+        # Category analysis
+        category_totals = transactions_df.groupby('Category')['Debit'].sum().sort_values(ascending=False)
+        top_categories = category_totals.head(5)
+        
+        # Large transactions
+        large_transactions = transactions_df[transactions_df['Debit'] > 1000]
+        
+        # Monthly analysis if dates are available
+        monthly_analysis = ""
+        try:
+            if 'Date' in transactions_df.columns:
+                transactions_df['Month'] = pd.to_datetime(transactions_df['Date']).dt.to_period('M')
+                monthly_outflow = transactions_df.groupby('Month')['Debit'].sum()
+                avg_monthly_outflow = monthly_outflow.mean()
+                monthly_analysis = f"\n- Average Monthly Outflow: ${avg_monthly_outflow:,.2f}"
+        except:
+            pass
+        
+        insights = f"""
+**📊 Bank Statement Analysis**
+
+**💰 Financial Summary:**
+- Total Outflow (Debits): ${total_debits:,.2f}
+- Total Inflow (Credits): ${total_credits:,.2f}
+- Net Cash Flow: ${net_flow:,.2f}
+{monthly_analysis}
+
+**📈 Top 5 Expense Categories:**
+"""
+        for category, amount in top_categories.items():
+            insights += f"\n- {category}: ${amount:,.2f}"
+        
+        if len(large_transactions) > 0:
+            insights += f"\n\n**🚨 Large Transactions (>$1,000):**\n- Found {len(large_transactions)} transactions over $1,000"
+            insights += f"\n- Largest transaction: ${large_transactions['Debit'].max():,.2f}"
+        
+        insights += f"\n\n**📋 Transaction Summary:**\n- Total transactions analyzed: {len(transactions_df)}"
+        insights += f"\n- Most common category: {category_totals.index[0] if not category_totals.empty else 'N/A'}"
+        
+        return insights
+        
+    except Exception as e:
+        return f"Error generating insights: {str(e)}"
 
 def extract_form_fields(text: str, form_type: str = "1120") -> Dict[str, Any]:
     """Extract key fields from the PDF text based on common tax form patterns."""
@@ -188,126 +406,6 @@ def extract_form_fields(text: str, form_type: str = "1120") -> Dict[str, Any]:
                 fields[field_name] = 0.0
     
     return fields
-
-def extract_bank_transactions(text: str) -> List[Dict[str, Any]]:
-    """Extract bank transaction data from bank statement text."""
-    transactions = []
-    
-    # Common bank statement patterns
-    transaction_patterns = [
-        # Pattern: Date Description Amount Balance
-        r"(\d{2}[/\-]\d{2}[/\-]\d{2,4})\s+([A-Za-z\s\*\#\&\-\.\,\(\)]+?)\s+([\-\+]?[£$]?[\d,]+\.?\d*)\s+([\-\+]?[£$]?[\d,]+\.?\d*)",
-        # Pattern: Date Description Debit Credit Balance
-        r"(\d{2}[/\-]\d{2}[/\-]\d{2,4})\s+([A-Za-z\s\*\#\&\-\.\,\(\)]+?)\s+([\-\+]?[£$]?[\d,]+\.?\d*)?\s+([\-\+]?[£$]?[\d,]+\.?\d*)?\s+([\-\+]?[£$]?[\d,]+\.?\d*)",
-        # Pattern: Date Ref Description Amount
-        r"(\d{2}[/\-]\d{2}[/\-]\d{2,4})\s+([A-Z0-9]+)\s+([A-Za-z\s\*\#\&\-\.\,\(\)]+?)\s+([\-\+]?[£$]?[\d,]+\.?\d*)"
-    ]
-    
-    lines = text.split('\n')
-    
-    for line in lines:
-        line = line.strip()
-        if not line or len(line) < 20:  # Skip short lines
-            continue
-            
-        for pattern in transaction_patterns:
-            match = re.search(pattern, line)
-            if match:
-                groups = match.groups()
-                
-                try:
-                    # Parse date
-                    date_str = groups[0]
-                    try:
-                        # Try different date formats
-                        for fmt in ["%d/%m/%Y", "%d-%m-%Y", "%d/%m/%y", "%d-%m-%y"]:
-                            try:
-                                transaction_date = datetime.datetime.strptime(date_str, fmt).date()
-                                break
-                            except ValueError:
-                                continue
-                        else:
-                            transaction_date = None
-                    except:
-                        transaction_date = None
-                    
-                    # Extract description and amounts based on pattern match
-                    if len(groups) == 4:  # Date, Description, Amount, Balance
-                        description = groups[1].strip()
-                        amount_str = groups[2].replace('£', '').replace('$', '').replace(',', '')
-                        balance_str = groups[3].replace('£', '').replace('$', '').replace(',', '')
-                        reference_id = f"TXN_{len(transactions)+1:04d}"
-                        
-                        try:
-                            amount = float(amount_str)
-                            balance = float(balance_str)
-                        except:
-                            continue
-                            
-                        transaction_type = "Credit" if amount >= 0 else "Debit"
-                        
-                    elif len(groups) == 5:  # Date, Description, Debit, Credit, Balance
-                        description = groups[1].strip()
-                        debit_str = groups[2] if groups[2] else "0"
-                        credit_str = groups[3] if groups[3] else "0"
-                        balance_str = groups[4]
-                        reference_id = f"TXN_{len(transactions)+1:04d}"
-                        
-                        try:
-                            debit = float(debit_str.replace('£', '').replace('$', '').replace(',', '')) if debit_str != "0" else 0
-                            credit = float(credit_str.replace('£', '').replace('$', '').replace(',', '')) if credit_str != "0" else 0
-                            balance = float(balance_str.replace('£', '').replace('$', '').replace(',', ''))
-                            
-                            if debit > 0:
-                                amount = -debit
-                                transaction_type = "Debit"
-                            else:
-                                amount = credit
-                                transaction_type = "Credit"
-                        except:
-                            continue
-                            
-                    elif len(groups) == 4 and groups[1].isupper():  # Date, Ref, Description, Amount
-                        reference_id = groups[1].strip()
-                        description = groups[2].strip()
-                        amount_str = groups[3].replace('£', '').replace('$', '').replace(',', '')
-                        
-                        try:
-                            amount = float(amount_str)
-                            balance = None  # Balance not available in this format
-                        except:
-                            continue
-                            
-                        transaction_type = "Credit" if amount >= 0 else "Debit"
-                    
-                    else:
-                        continue
-                    
-                    # Clean up description
-                    description = re.sub(r'\s+', ' ', description).strip()
-                    if len(description) > 50:
-                        description = description[:50] + "..."
-                    
-                    transaction = {
-                        "date": transaction_date,
-                        "description": description,
-                        "amount": amount,
-                        "type": transaction_type,
-                        "balance": balance,
-                        "reference_id": reference_id
-                    }
-                    
-                    transactions.append(transaction)
-                    break  # Found a match, move to next line
-                    
-                except Exception as e:
-                    continue  # Skip problematic transactions
-    
-    # Sort transactions by date if available
-    transactions = [t for t in transactions if t["date"] is not None]
-    transactions.sort(key=lambda x: x["date"] if x["date"] else datetime.date.min)
-    
-    return transactions
 
 def generate_insights(extracted_data: Dict[str, Any]) -> str:
     """Generate AI-powered insights from extracted tax data."""
@@ -385,74 +483,6 @@ def generate_insights(extracted_data: Dict[str, Any]) -> str:
         return response.choices[0].message.content
     except Exception as e:
         return f"Error generating insights: {str(e)}"
-
-def generate_bank_insights(transactions: List[Dict[str, Any]]) -> str:
-    """Generate AI-powered insights from bank transaction data."""
-    try:
-        if not transactions:
-            return "No transactions found to analyze."
-        
-        # Calculate basic statistics
-        total_credits = sum([t["amount"] for t in transactions if t["amount"] > 0])
-        total_debits = sum([abs(t["amount"]) for t in transactions if t["amount"] < 0])
-        net_flow = total_credits - total_debits
-        avg_transaction = sum([abs(t["amount"]) for t in transactions]) / len(transactions)
-        large_transactions = [t for t in transactions if abs(t["amount"]) >= 5000]
-        
-        # Group by description for pattern analysis
-        description_groups = {}
-        for t in transactions:
-            desc_key = t["description"][:20].upper()  # First 20 chars for grouping
-            if desc_key not in description_groups:
-                description_groups[desc_key] = []
-            description_groups[desc_key].append(t)
-        
-        recurring_patterns = {k: v for k, v in description_groups.items() if len(v) >= 3}
-        
-        prompt = f"""
-        Analyze the following bank statement data and provide financial commentary:
-        
-        TRANSACTION SUMMARY:
-        - Total Transactions: {len(transactions)}
-        - Total Credits (Inflows): £{total_credits:,.2f}
-        - Total Debits (Outflows): £{total_debits:,.2f}
-        - Net Cash Flow: £{net_flow:,.2f}
-        - Average Transaction Size: £{avg_transaction:,.2f}
-        - Large Transactions (≥£5,000): {len(large_transactions)}
-        
-        PATTERN ANALYSIS:
-        - Recurring Payment Patterns: {len(recurring_patterns)} detected
-        - Date Range: {transactions[0]['date']} to {transactions[-1]['date']}
-        
-        LARGE TRANSACTIONS:
-        {chr(10).join([f"- {t['date']}: {t['description']} £{t['amount']:,.2f}" for t in large_transactions[:5]])}
-        
-        RECURRING PATTERNS:
-        {chr(10).join([f"- {k}: {len(v)} occurrences" for k, v in list(recurring_patterns.items())[:5]])}
-        
-        Please provide:
-        1. Cash flow analysis and trends
-        2. Notable spending patterns or anomalies
-        3. Recurring subscription/payment identification
-        4. Risk indicators or unusual activities
-        5. Financial health observations
-        
-        Keep the analysis concise and actionable for business management.
-        """
-        
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You are a financial analyst providing insights on bank statement data. Focus on cash flow, patterns, and business financial health."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=600,
-            temperature=0.3
-        )
-        
-        return response.choices[0].message.content
-    except Exception as e:
-        return f"Error generating bank insights: {str(e)}"
 
 def ask_question(question: str, qa_chain, chat_history: List[Tuple[str, str]]) -> str:
     """Process user questions about the uploaded document."""
@@ -556,87 +586,106 @@ def display_form(extracted_fields: Dict[str, Any]):
             st.write(f"**Taxable Income:** ${taxable_income:,.2f}")
             st.write(f"**Income Tax:** ${income_tax:,.2f}")
 
-def display_bank_transactions(transactions: List[Dict[str, Any]]):
-    """Display bank transactions in a structured table view."""
-    if not transactions:
-        st.warning("No transactions found in the bank statement.")
+def display_bank_transactions(transactions_df: pd.DataFrame):
+    """Display bank transaction data with filtering options."""
+    st.header("🧾 Extracted Bookkeeping Data")
+    
+    if transactions_df.empty:
+        st.warning("No transaction data was extracted from the document. Please ensure the document contains clearly formatted transaction information.")
         return
     
-    # Convert to DataFrame for better display
-    df = pd.DataFrame(transactions)
+    # Filtering options
+    st.subheader("🔍 Filter Transactions")
+    col1, col2, col3 = st.columns(3)
     
-    # Format the data for display
-    df['Amount (£)'] = df['amount'].apply(lambda x: f"£{x:,.2f}")
-    df['Balance (£)'] = df['balance'].apply(lambda x: f"£{x:,.2f}" if pd.notna(x) else "N/A")
-    df['Date'] = df['date'].apply(lambda x: x.strftime('%d/%m/%Y') if pd.notna(x) else "N/A")
+    with col1:
+        # Amount threshold filter
+        min_amount = st.number_input("Minimum Amount ($)", min_value=0.0, value=0.0, step=50.0)
+        filtered_df = transactions_df[transactions_df['Debit'] >= min_amount]
     
-    # Select and rename columns for display
-    display_df = df[['Date', 'description', 'Amount (£)', 'type', 'Balance (£)', 'reference_id']]
-    display_df.columns = ['Date', 'Description', 'Amount', 'Type', 'Balance', 'Reference']
+    with col2:
+        # Category filter
+        categories = ['All'] + list(transactions_df['Category'].unique())
+        selected_category = st.selectbox("Category", categories)
+        if selected_category != 'All':
+            filtered_df = filtered_df[filtered_df['Category'] == selected_category]
     
-    st.subheader("💳 Transaction Details")
-    st.dataframe(display_df, use_container_width=True, height=400)
+    with col3:
+        # Month filter (if dates are available)
+        if 'Date' in transactions_df.columns:
+            try:
+                dates = pd.to_datetime(transactions_df['Date'])
+                months = ['All'] + sorted(dates.dt.strftime('%Y-%m').unique(), reverse=True)
+                selected_month = st.selectbox("Month", months)
+                if selected_month != 'All':
+                    month_mask = pd.to_datetime(filtered_df['Date']).dt.strftime('%Y-%m') == selected_month
+                    filtered_df = filtered_df[month_mask]
+            except:
+                st.info("Date filtering unavailable - dates could not be parsed")
     
-    # Transaction Statistics
+    # Display transaction table
+    st.subheader(f"💳 Transactions ({len(filtered_df)} of {len(transactions_df)} shown)")
+    
+    # Format monetary columns
+    display_df = filtered_df.copy()
+    for col in ['Debit', 'Credit', 'Balance']:
+        if col in display_df.columns:
+            display_df[col] = display_df[col].apply(lambda x: f"${x:,.2f}" if pd.notnull(x) and x != 0 else "")
+    
+    st.dataframe(
+        display_df,
+        use_container_width=True,
+        hide_index=True
+    )
+    
+    # Summary statistics
+    st.subheader("📊 Transaction Summary")
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric("Total Transactions", len(transactions))
-    
+        st.metric("Total Transactions", len(filtered_df))
     with col2:
-        total_credits = sum([t["amount"] for t in transactions if t["amount"] > 0])
-        st.metric("Total Credits", f"£{total_credits:,.2f}")
-    
+        st.metric("Total Debits", f"${filtered_df['Debit'].sum():,.2f}")
     with col3:
-        total_debits = sum([abs(t["amount"]) for t in transactions if t["amount"] < 0])
-        st.metric("Total Debits", f"£{total_debits:,.2f}")
-    
+        st.metric("Total Credits", f"${filtered_df['Credit'].sum():,.2f}")
     with col4:
-        net_flow = total_credits - total_debits
-        st.metric("Net Flow", f"£{net_flow:,.2f}", delta=f"£{net_flow:,.2f}")
-    
-    # Flag large transactions
-    large_transactions = [t for t in transactions if abs(t["amount"]) >= 5000]
-    if large_transactions:
-        st.subheader("🚨 Large Transactions (≥£5,000)")
-        large_df = pd.DataFrame(large_transactions)
-        large_df['Amount (£)'] = large_df['amount'].apply(lambda x: f"£{x:,.2f}")
-        large_df['Date'] = large_df['date'].apply(lambda x: x.strftime('%d/%m/%Y') if pd.notna(x) else "N/A")
-        large_display_df = large_df[['Date', 'description', 'Amount (£)', 'type']]
-        large_display_df.columns = ['Date', 'Description', 'Amount', 'Type']
-        st.dataframe(large_display_df, use_container_width=True)
-    
-    # Export to CSV option
-    if st.button("📥 Export Transactions to CSV"):
-        csv = display_df.to_csv(index=False)
-        st.download_button(
-            label="Download CSV",
-            data=csv,
-            file_name=f"bank_transactions_{datetime.date.today()}.csv",
-            mime="text/csv"
-        )
+        net_flow = filtered_df['Credit'].sum() - filtered_df['Debit'].sum()
+        st.metric("Net Flow", f"${net_flow:,.2f}")
 
 # Main App Interface
-uploaded_file = st.file_uploader("Choose a PDF file", type="pdf")
+st.header("📤 Upload Your Document")
+
+# Determine file types based on document type
+if document_type == "Tax Return Document":
+    file_types = ["pdf"]
+    help_text = "Upload a PDF tax return document"
+else:
+    file_types = ["pdf", "docx", "png", "jpg", "jpeg", "tiff", "bmp"]
+    help_text = "Upload a bank statement (PDF, DOCX, or image file)"
+
+uploaded_file = st.file_uploader(
+    help_text,
+    type=file_types
+)
 
 if uploaded_file is not None:
-    st.success("✅ PDF file uploaded successfully!")
+    st.success("✅ File uploaded successfully!")
     
-    # Extract text from PDF
-    with st.spinner("Processing PDF and setting up AI capabilities..."):
-        pdf_text = extract_pdf_text(uploaded_file)
+    # Process based on document type
+    if document_type == "Tax Return Document":
+        # Extract text from PDF
+        with st.spinner("Processing PDF and setting up AI capabilities..."):
+            pdf_text = extract_pdf_text(uploaded_file)
+            
+            # Create vector store for AI querying
+            vector_store, qa_chain = create_vector_store(uploaded_file)
+            st.session_state.vector_store = vector_store
+            st.session_state.qa_chain = qa_chain
         
-        # Create vector store for AI querying
-        vector_store, qa_chain = create_vector_store(uploaded_file)
-        st.session_state.vector_store = vector_store
-        st.session_state.qa_chain = qa_chain
-    
-    if pdf_text:
-        st.success("✅ PDF processing completed!")
-        
-        # Conditional processing based on document type
-        if document_type == "Tax Return Document":
-            # Tax Return Processing
+        if pdf_text:
+            st.success("✅ PDF processing completed!")
+            
+            # Extract form fields
             with st.spinner("Extracting form fields and generating insights..."):
                 extracted_fields = extract_form_fields(pdf_text)
                 st.session_state.extracted_data = extracted_fields
@@ -645,9 +694,9 @@ if uploaded_file is not None:
                 insights = generate_insights(extracted_fields)
                 st.session_state.insights = insights
             
-            st.success(f"✅ Tax analysis completed! Found {len([v for v in extracted_fields.values() if v])} fields with data.")
+            st.success(f"✅ Analysis completed! Found {len([v for v in extracted_fields.values() if v])} fields with data.")
             
-            # Create tabs for tax return analysis
+            # Create tabs for different sections
             tab1, tab2, tab3, tab4 = st.tabs(["📊 Extracted Data", "🤖 AI Assistant", "💡 Insights", "📄 Document Preview"])
             
             with tab1:
@@ -658,7 +707,7 @@ if uploaded_file is not None:
                 st.header("🤖 AI Document Assistant")
                 st.markdown("Ask questions about your tax document. I can help you find specific information, analyze data, and clarify details.")
                 
-                # Example questions for tax returns
+                # Example questions
                 st.markdown("**Example questions:**")
                 col1, col2 = st.columns(2)
                 with col1:
@@ -700,7 +749,7 @@ if uploaded_file is not None:
                         st.rerun()
             
             with tab3:
-                st.header("💡 AI-Generated Tax Insights")
+                st.header("💡 AI-Generated Insights")
                 st.markdown("AI analysis of your tax document highlighting key financial metrics and observations:")
                 
                 if st.session_state.insights:
@@ -720,96 +769,57 @@ if uploaded_file is not None:
                 st.markdown("Preview of extracted text from your PDF:")
                 st.text_area("PDF Content", pdf_text[:3000] + "..." if len(pdf_text) > 3000 else pdf_text, height=400)
         
-        else:  # Bank Statement Processing
-            with st.spinner("Extracting bank transactions and generating insights..."):
-                transactions = extract_bank_transactions(pdf_text)
-                st.session_state.bank_transactions = transactions
-                
-                # Generate bank-specific insights
-                bank_insights = generate_bank_insights(transactions)
-                st.session_state.insights = bank_insights
-            
-            st.success(f"✅ Bank statement analysis completed! Found {len(transactions)} transactions.")
-            
-            # Create tabs for bank statement analysis
-            tab1, tab2, tab3, tab4 = st.tabs(["💳 Transactions", "🤖 AI Assistant", "💡 Financial Insights", "📄 Document Preview"])
-            
-            with tab1:
-                display_bank_transactions(transactions)
-            
-            with tab2:
-                st.header("🤖 AI Banking Assistant")
-                st.markdown("Ask questions about your bank statement. I can help analyze transactions, identify patterns, and provide financial insights.")
-                
-                # Example questions for bank statements
-                st.markdown("**Example questions:**")
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button("💰 What are the largest transactions?"):
-                        st.session_state.current_question = "What are the largest transactions in this bank statement?"
-                    if st.button("📊 Show recurring payments"):
-                        st.session_state.current_question = "What recurring payments or subscriptions can you identify?"
-                with col2:
-                    if st.button("🔍 Any unusual activity?"):
-                        st.session_state.current_question = "Are there any unusual or suspicious transactions in this statement?"
-                    if st.button("📈 What's the cash flow trend?"):
-                        st.session_state.current_question = "What is the overall cash flow trend shown in this statement?"
-                
-                # Chat interface
-                user_question = st.text_input("Ask a question about your bank statement:", 
-                                            value=st.session_state.get("current_question", ""))
-                
-                if user_question and st.button("Ask Question"):
-                    with st.spinner("Analyzing bank statement..."):
-                        answer = ask_question(user_question, st.session_state.qa_chain, st.session_state.chat_history)
-                        
-                        # Add to chat history
-                        st.session_state.chat_history.append((user_question, answer))
-                        
-                        # Clear current question
-                        if "current_question" in st.session_state:
-                            del st.session_state.current_question
-                
-                # Display chat history
-                if st.session_state.chat_history:
-                    st.subheader("💬 Conversation History")
-                    for i, (question, answer) in enumerate(st.session_state.chat_history):
-                        with st.expander(f"Q{i+1}: {question[:50]}..."):
-                            st.write(f"**Question:** {question}")
-                            st.write(f"**Answer:** {answer}")
-                    
-                    if st.button("🗑️ Clear Chat History"):
-                        st.session_state.chat_history = []
-                        st.rerun()
-            
-            with tab3:
-                st.header("💡 AI-Generated Financial Insights")
-                st.markdown("AI analysis of your bank statement highlighting spending patterns, cash flow, and financial health:")
-                
-                if st.session_state.insights:
-                    st.markdown(st.session_state.insights)
-                else:
-                    st.info("No insights available. Please ensure the document was processed correctly.")
-                
-                if st.button("🔄 Regenerate Insights"):
-                    with st.spinner("Generating fresh insights..."):
-                        new_insights = generate_bank_insights(st.session_state.bank_transactions)
-                        st.session_state.insights = new_insights
-                        st.rerun()
-            
-            with tab4:
-                # Show extracted text preview
-                st.header("📄 Document Preview")
-                st.markdown("Preview of extracted text from your PDF:")
-                st.text_area("PDF Content", pdf_text[:3000] + "..." if len(pdf_text) > 3000 else pdf_text, height=400)
+        else:
+            st.error("❌ Could not extract text from the PDF. Please check if the file is valid.")
     
-    else:
-        st.error("❌ Could not extract text from the PDF. Please check if the file is valid.")
+    else:  # Bank Statement handling
+        with st.spinner("Processing bank statement and extracting transaction data..."):
+            # Extract text from the uploaded file
+            document_text = extract_text_from_file(uploaded_file)
+            
+            if document_text:
+                # Extract transaction data
+                transactions_df = extract_bank_transactions(document_text)
+                st.session_state.bank_transactions = transactions_df
+                
+                if not transactions_df.empty:
+                    st.success(f"✅ Processing completed! Extracted {len(transactions_df)} transactions.")
+                    
+                    # Create tabs for bank statement analysis
+                    tab1, tab2, tab3 = st.tabs(["🧾 Transaction Data", "📊 Insights", "📄 Document Preview"])
+                    
+                    with tab1:
+                        display_bank_transactions(transactions_df)
+                    
+                    with tab2:
+                        st.header("📊 AI Insights (Bank Statement)")
+                        insights = generate_bank_insights(transactions_df)
+                        st.markdown(insights)
+                        
+                        if st.button("🔄 Regenerate Bank Insights"):
+                            with st.spinner("Generating fresh insights..."):
+                                new_insights = generate_bank_insights(st.session_state.bank_transactions)
+                                st.markdown(new_insights)
+                    
+                    with tab3:
+                        st.header("📄 Document Preview")
+                        st.markdown("Preview of extracted text from your bank statement:")
+                        st.text_area("Document Content", document_text[:3000] + "..." if len(document_text) > 3000 else document_text, height=400)
+                
+                else:
+                    st.warning("⚠️ No transaction data could be extracted from this document. Please ensure it's a properly formatted bank statement.")
+                    
+                    # Show preview anyway
+                    st.header("📄 Document Preview")
+                    st.text_area("Document Content", document_text[:3000] + "..." if len(document_text) > 3000 else document_text, height=400)
+            
+            else:
+                st.error("❌ Could not extract text from the file. Please check if the file is valid and readable.")
 
 else:
-    st.info(f"👆 Please upload a PDF {document_type.lower()} to get started.")
+    st.info("👆 Please upload a document to get started.")
     
-    # Show sample instructions based on document type
+    # Show appropriate sample instructions based on document type
     if document_type == "Tax Return Document":
         st.markdown("""
         ### 🚀 Tax Return Features:
@@ -819,12 +829,12 @@ else:
         - Supports various tax forms (1120, 1040, etc.)
         - Editable form interface for corrections
         
-        #### 🤖 **AI-Powered Tax Assistant**
-        - Ask natural language questions about your tax document
+        #### 🤖 **AI-Powered Assistant**
+        - Ask natural language questions about your document
         - Get contextual answers based on document content
         - Maintains conversation history for follow-up questions
         
-        #### 💡 **Tax Intelligence**
+        #### 💡 **Intelligent Insights**
         - AI-generated financial analysis and summaries
         - Anomaly detection and key observations
         - Expense category analysis and tax efficiency insights
@@ -835,34 +845,31 @@ else:
         - **Deductions:** COGS, Salaries, Rent, Depreciation, Advertising, etc.
         - **Tax Computation:** Taxable Income, Tax Owed, Payments, Refunds
         """)
+    
     else:
         st.markdown("""
-        ### 🚀 Bank Statement Features:
+        ### 🏦 Bank Statement Features:
         
-        #### 💳 **Transaction Extraction**
-        - Automatically parses transaction data from bank statements
-        - Extracts dates, descriptions, amounts, and balances
-        - Identifies transaction types (Credit/Debit)
+        #### 🧾 **Transaction Extraction**
+        - Automatically extracts transaction data from bank statements
+        - Supports PDF, DOCX, and image formats (PNG, JPG, TIFF)
+        - Smart categorization of transactions
         
-        #### 🚨 **Anomaly Detection**
-        - Flags transactions over £5,000
-        - Identifies unusual spending patterns
-        - Detects recurring payments and subscriptions
+        #### 🔍 **Data Analysis**
+        - Filter transactions by amount, category, or month
+        - View transaction summaries and statistics
+        - Export-ready data tables
         
-        #### 📊 **Financial Analysis**
-        - Cash flow analysis and trends
-        - Expense categorization
-        - Financial health indicators
+        #### 📊 **Financial Insights**
+        - Top expense categories analysis
+        - Cash flow analysis (inflow vs outflow)
+        - Large transaction detection
+        - Monthly spending patterns
         
-        #### 📥 **Export Capabilities**
-        - Export transaction data to CSV
-        - Structured table view for easy review
-        - Transaction statistics and summaries
-        
-        #### 🤖 **AI Banking Assistant**
-        - Ask questions about your banking activity
-        - Get insights on spending patterns
-        - Identify financial optimization opportunities
+        #### 💳 **Supported Data:**
+        - **Transaction Details:** Date, Description, Amount, Balance
+        - **Categories:** Office Supplies, Utilities, Travel, Marketing, etc.
+        - **Analysis:** Net cash flow, spending patterns, anomalies
         """)
     
     st.markdown("""
