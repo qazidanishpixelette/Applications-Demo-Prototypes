@@ -12,4 +12,4 @@ pytesseract
 docx
 python-docx
 document
-
+fitz
