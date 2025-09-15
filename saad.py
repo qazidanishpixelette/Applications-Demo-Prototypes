@@ -2,13 +2,13 @@ import streamlit as st
 from langchain_openai import ChatOpenAI
 
 # Fetch the key from Streamlit secrets
-openai_api_key = st.secrets["OPENAI_API_KEY"]
+# openai_api_key = st.secrets["OPENAI_API_KEY"]
 
 # Initialize the ChatOpenAI model with the secret key
-model = ChatOpenAI(
-    model="gpt-4o-mini",
-    openai_api_key=openai_api_key
-)
+# model = ChatOpenAI(
+#     model="gpt-4o-mini",
+#     openai_api_key=openai_api_key
+# )
 
 st.header("Iota Checker ChatBot")
 
