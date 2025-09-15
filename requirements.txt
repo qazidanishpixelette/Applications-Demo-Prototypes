@@ -2,4 +2,4 @@ google-generativeai
 streamlit
 openai
 pytesseract
-langchain==0.0.284
+hyperpocket-langchain
