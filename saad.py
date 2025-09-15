@@ -1,5 +1,5 @@
 import streamlit as st
-from langchain.chat_models import ChatOpenAI
+from langchain_openai import ChatOpenAI
 
 # Fetch the key from Streamlit secrets
 openai_api_key = st.secrets["OPENAI_API_KEY"]
